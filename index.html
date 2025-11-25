@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connect Four vs. AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --board-color: #0077b6; /* Deep Ocean Blue */
+            --player1-color: #e63946; /* Vibrant Red */
+            --player2-color: #ffc300; /* Sunny Yellow */
+            --empty-color: #1a8bcc; /* Light Ocean Blue */
+            --shadow-light: rgba(0, 0, 0, 0.1);
+            --shadow-heavy: rgba(0, 0, 0, 0.25);
+            --gap-size: 10px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Light background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+
+        .game-container {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px var(--shadow-heavy);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 90vw;
+            width: 500px;
+        }
+
+        h1 {
+            color: var(--board-color);
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+        }
+
+        #status-message {
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            min-height: 25px;
+            text-align: center;
+        }
+
+        /* --- Board and Tokens --- */
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: var(--gap-size);
+            background-color: var(--board-color);
+            padding: var(--gap-size);
+            border-radius: 12px;
+            box-shadow: inset 0 0 15px var(--shadow-heavy);
+        }
+
+        .cell {
+            width: 50px;
+            height: 50px;
+            background-color: var(--empty-color);
+            border-radius: 50%;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: background-color 0.15s ease-in-out;
+            box-shadow: inset 0 0 5px var(--shadow-light);
+        }
+        
+        /* Highlight on hover to indicate where a piece can be dropped */
+        .cell-hoverable:hover {
+            opacity: 0.8;
+            box-shadow: 0 0 10px 3px rgba(255, 255, 255, 0.7);
+        }
+
+        .token {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            box-shadow: 0 4px 8px var(--shadow-heavy);
+        }
+        
+        /* Class applied only for the drop animation */
+        .dropping {
+            transform: translateY(-100vh); /* Start far above */
+            animation: drop 0.5s cubic-bezier(0.5, 0.05, 1, 0.5) forwards; /* Gravity effect */
+        }
+
+        @keyframes drop {
+            to { transform: translateY(0); }
+        }
+
+        .player1 { background-color: var(--player1-color); }
+        .player2 { background-color: var(--player2-color); }
+
+        /* --- Controls --- */
+        .controls {
+            margin-top: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        #reset-button {
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: 700;
+            background-color: var(--board-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+            box-shadow: 0 4px 10px var(--shadow-light);
+        }
+
+        #reset-button:hover {
+            background-color: #005f99;
+            transform: translateY(-2px);
+        }
+
+        #reset-button:active {
+            transform: translateY(0);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .game-container {
+                padding: 15px;
+                width: 100%;
+            }
+            .cell {
+                width: 40px;
+                height: 40px;
+            }
+            #game-board {
+                gap: 5px;
+                padding: 5px;
+            }
+            h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>Connect Four: Human vs. Minimax AI</h1>
+        <div id="status-message">Your Turn (Red)</div>
+        <div id="game-board">
+            <!-- Grid cells will be injected here by JavaScript -->
+        </div>
+        <div class="controls">
+            <button id="reset-button">New Game</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Constants ---
+        const ROWS = 6;
+        const COLS = 7;
+        const EMPTY = 0;
+        const PLAYER = 2; // Human (Red)
+        const AI = 1;     // Bot (Yellow)
+        const AI_DIFFICULTY = 4; // Minimax search depth
+
+        // --- Game State ---
+        let board = [];
+        let currentPlayer = PLAYER;
+        let gameOver = false;
+        let isProcessingMove = false; // Prevents fast double-clicks or conflicts
+
+        // --- DOM Elements ---
+        const boardEl = document.getElementById('game-board');
+        const statusEl = document.getElementById('status-message');
+        const resetBtn = document.getElementById('reset-button');
+
+        // --- Utility Functions ---
+
+        /**
+         * Initializes the game board and UI.
+         */
+        function initGame() {
+            board = Array.from({ length: ROWS }, () => Array(COLS).fill(EMPTY));
+            currentPlayer = PLAYER;
+            gameOver = false;
+            isProcessingMove = false;
+            boardEl.innerHTML = '';
+            boardEl.style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+            boardEl.style.pointerEvents = 'auto'; // Ensure board is interactive initially
+
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    // Only add the click handler to the top row elements for visual cue
+                    if (r === 0) {
+                        cell.classList.add('cell-hoverable');
+                        cell.addEventListener('click', () => handlePlayerMove(c));
+                    }
+                    boardEl.appendChild(cell);
+                }
+            }
+            updateStatus('Your Turn (Red)');
+            updateBoardUI();
+        }
+
+        /**
+         * Updates the status message on the screen.
+         * @param {string} message - The message to display.
+         * @param {string} color - Optional color for the text.
+         */
+        function updateStatus(message, color = '#333') {
+            statusEl.textContent = message;
+            statusEl.style.color = color;
+        }
+
+        /**
+         * Renders the current state of the board onto the UI.
+         * This function is now responsible for rendering static tokens, 
+         * and the move handlers handle the animation cleanup.
+         */
+        function updateBoardUI() {
+            const cells = boardEl.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                const r = parseInt(cell.dataset.row);
+                const c = parseInt(cell.dataset.col);
+                const player = board[r][c];
+
+                // Remove existing content before drawing new tokens
+                cell.innerHTML = '';
+                cell.className = 'cell';
+                
+                // Set hover state for top row cells that are part of a valid move
+                if (r === 0 && !gameOver && getValidMoves(board).includes(c) && !isProcessingMove) {
+                    cell.classList.add('cell-hoverable');
+                }
+
+                if (player !== EMPTY) {
+                    const token = document.createElement('div');
+                    // Add the base class and player color class
+                    token.classList.add('token', player === PLAYER ? 'player1' : 'player2');
+                    
+                    // Crucial: Static tokens do not have the 'dropping' class
+                    cell.appendChild(token);
+                }
+            });
+        }
+
+        /**
+         * Makes a move in the specified column.
+         * @param {number} col - The column index (0-6).
+         * @param {number} player - The player ID (1 or 2).
+         * @returns {number} The row where the piece landed, or -1 if the move was invalid.
+         */
+        function makeMove(col, player) {
+            const row = getLowestEmptyRow(board, col);
+            if (row !== -1) {
+                board[row][col] = player;
+                return row;
+            }
+            return -1;
+        }
+
+        /**
+         * Finds the lowest empty row in a given column.
+         * @param {Array<Array<number>>} b - The board state.
+         * @param {number} col - The column index.
+         * @returns {number} The row index, or -1 if the column is full.
+         */
+        function getLowestEmptyRow(b, col) {
+            for (let r = ROWS - 1; r >= 0; r--) {
+                if (b[r][col] === EMPTY) {
+                    return r;
+                }
+            }
+            return -1;
+        }
+
+        /**
+         * Checks if the last move resulted in a win.
+         * (Win check logic remains the same)
+         */
+        function checkWin(b, r, c, player) {
+            // Check horizontal
+            let count = 0;
+            for (let i = 0; i < COLS; i++) {
+                count = (b[r][i] === player) ? count + 1 : 0;
+                if (count >= 4) return true;
+            }
+
+            // Check vertical
+            count = 0;
+            for (let i = 0; i < ROWS; i++) {
+                count = (b[i][c] === player) ? count + 1 : 0;
+                if (count >= 4) return true;
+            }
+
+            // Check diagonal (top-left to bottom-right)
+            count = 0;
+            let startR = r - Math.min(r, c);
+            let startC = c - Math.min(r, c);
+            while (startR < ROWS && startC < COLS) {
+                count = (b[startR][startC] === player) ? count + 1 : 0;
+                if (count >= 4) return true;
+                startR++;
+                startC++;
+            }
+
+            // Check anti-diagonal (top-right to bottom-left)
+            count = 0;
+            startR = r - Math.min(r, COLS - 1 - c);
+            startC = c + Math.min(r, COLS - 1 - c);
+            while (startR < ROWS && startC >= 0) {
+                count = (b[startR][startC] === player) ? count + 1 : 0;
+                if (count >= 4) return true;
+                startR++;
+                startC--;
+            }
+
+            return false;
+        }
+
+        /**
+         * Checks if the board is full (Draw).
+         * @param {Array<Array<number>>} b - The board state.
+         * @returns {boolean}
+         */
+        function isBoardFull(b) {
+            return b[0].every(cell => cell !== EMPTY);
+        }
+
+        /**
+         * Main handler for the human player's move.
+         * @param {number} col - The chosen column.
+         */
+        function handlePlayerMove(col) {
+            if (gameOver || currentPlayer !== PLAYER || isProcessingMove) return;
+
+            const r = getLowestEmptyRow(board, col);
+            if (r === -1) {
+                updateStatus('Column is full. Choose another.', 'var(--player1-color)');
+                return;
+            }
+
+            // 1. Start processing the move
+            isProcessingMove = true;
+            
+            // 2. Update model state
+            makeMove(col, PLAYER);
+
+            // 3. Visually drop the token (triggers animation with the 'dropping' class)
+            const cellEl = boardEl.querySelector(`.cell[data-row="${r}"][data-col="${col}"]`);
+            if(cellEl) {
+                const token = document.createElement('div');
+                // The token has two classes: base 'token' (size/shape) and 'dropping' (animation)
+                token.classList.add('token', 'dropping', 'player1'); 
+                cellEl.appendChild(token);
+            }
+
+            // 4. Temporarily disable user interaction during animation
+            boardEl.style.pointerEvents = 'none';
+
+            // 5. Finalize move after animation delay (550ms for 500ms CSS animation)
+            setTimeout(() => {
+                const win = checkWin(board, r, col, PLAYER);
+                const draw = isBoardFull(board);
+                
+                // Redraw the board: this removes the animated token and replaces it with a static one
+                updateBoardUI(); 
+
+                // Re-enable interaction 
+                boardEl.style.pointerEvents = 'auto';
+                isProcessingMove = false;
+                
+                if (win) {
+                    gameOver = true;
+                    updateStatus('You Win! Congrats!', 'var(--player1-color)');
+                } else if (draw) {
+                    gameOver = true;
+                    updateStatus('It\'s a Draw!', '#555');
+                } else {
+                    currentPlayer = AI;
+                    updateStatus('AI\'s Turn (Yellow)');
+                    handleAIMove(); // Trigger AI move
+                }
+            }, 550); 
+        }
+
+        // --- AI Implementation (Minimax) ---
+
+        /**
+         * Main function for the AI move.
+         */
+        function handleAIMove() {
+            if (gameOver || isProcessingMove) return;
+
+            isProcessingMove = true;
+            updateStatus('AI is thinking...');
+            boardEl.style.pointerEvents = 'none'; // Keep board locked during computation and animation
+
+            // Delay the computation slightly to show 'AI is thinking' status (300ms)
+            setTimeout(() => {
+                const { col, row } = findBestMove(board);
+                const finalR = makeMove(col, AI);
+                
+                // 1. Visually drop the token 
+                const cellEl = boardEl.querySelector(`.cell[data-row="${finalR}"][data-col="${col}"]`);
+                if(cellEl) {
+                    const token = document.createElement('div');
+                    token.classList.add('token', 'dropping', 'player2');
+                    cellEl.appendChild(token);
+                }
+
+                // 2. Finalize move after animation delay (550ms for 500ms CSS animation)
+                setTimeout(() => {
+                    const win = checkWin(board, finalR, col, AI);
+                    const draw = isBoardFull(board);
+                    
+                    // Redraw the board: this removes the animated token and replaces it with a static one
+                    updateBoardUI();
+
+                    // Re-enable interaction
+                    boardEl.style.pointerEvents = 'auto';
+                    isProcessingMove = false;
+
+                    if (win) {
+                        gameOver = true;
+                        updateStatus('AI Wins! Better luck next time.', 'var(--player2-color)');
+                    } else if (draw) {
+                        gameOver = true;
+                        updateStatus('It\'s a Draw!', '#555');
+                    } else {
+                        currentPlayer = PLAYER;
+                        updateStatus('Your Turn (Red)');
+                    }
+                }, 550); 
+            }, 300); // 300ms delay to show thinking status
+        }
+
+        /**
+         * Calls the minimax function to find the optimal column.
+         * @param {Array<Array<number>>} currentBoard - The board state.
+         * @returns {{col: number, row: number}} The best move.
+         */
+        function findBestMove(currentBoard) {
+            let bestScore = -Infinity;
+            let bestCol = -1;
+
+            const validMoves = getValidMoves(currentBoard);
+
+            // Prioritize the center column for better opening play
+            if (validMoves.includes(Math.floor(COLS / 2))) {
+                bestCol = Math.floor(COLS / 2);
+            } else {
+                // If center is not available, just pick the first valid move initially
+                bestCol = validMoves[0];
+            }
+
+
+            for (const col of validMoves) {
+                // Create a copy of the board and make the AI's move (Maximizing)
+                const tempBoard = JSON.parse(JSON.stringify(currentBoard));
+                const r = getLowestEmptyRow(tempBoard, col);
+                tempBoard[r][col] = AI;
+
+                // Evaluate the move using minimax (next player is Minimizing)
+                const score = minimax(tempBoard, AI_DIFFICULTY - 1, -Infinity, Infinity, false);
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestCol = col;
+                }
+            }
+
+            return { col: bestCol, row: getLowestEmptyRow(currentBoard, bestCol) };
+        }
+
+        /**
+         * The core Minimax algorithm with Alpha-Beta Pruning.
+         * @param {Array<Array<number>>} b - The board state.
+         * @param {number} depth - How many moves to look ahead.
+         * @param {number} alpha - Alpha value for pruning.
+         * @param {number} beta - Beta value for pruning.
+         * @param {boolean} isMaximizingPlayer - True if it's the AI's turn, False if it's the Human's.
+         * @returns {number} The evaluated score for the current board state.
+         */
+        function minimax(b, depth, alpha, beta, isMaximizingPlayer) {
+            // Check terminal states (Win/Loss/Draw or Max Depth)
+            const validMoves = getValidMoves(b);
+            
+            // Check for immediate win/loss possibilities in the current state's children
+            for(const col of validMoves) {
+                const r = getLowestEmptyRow(b, col);
+                if (r !== -1) { 
+                    const tempBoard = JSON.parse(JSON.stringify(b));
+                    // The player *making the move* is the current player in this recursive state
+                    const playerMakingMove = isMaximizingPlayer ? AI : PLAYER; 
+                    tempBoard[r][col] = playerMakingMove;
+
+                    if (checkWin(tempBoard, r, col, playerMakingMove)) {
+                        // If AI can win now, score extremely high. If Human can win now (and it's AI's search), score extremely low.
+                        return isMaximizingPlayer ? 1000000000 + depth : -1000000000 - depth;
+                    }
+                }
+            }
+
+            if (depth === 0 || validMoves.length === 0) {
+                return evaluate(b);
+            }
+
+            if (isMaximizingPlayer) { // AI's turn (Maximizing)
+                let maxEval = -Infinity;
+                for (const col of validMoves) {
+                    const tempBoard = JSON.parse(JSON.stringify(b));
+                    const r = getLowestEmptyRow(tempBoard, col);
+                    tempBoard[r][col] = AI;
+                    
+                    const evaluation = minimax(tempBoard, depth - 1, alpha, beta, false);
+                    maxEval = Math.max(maxEval, evaluation);
+                    alpha = Math.max(alpha, maxEval);
+                    if (beta <= alpha) break; // Beta cut-off
+                }
+                return maxEval;
+            } else { // Human's turn (Minimizing)
+                let minEval = Infinity;
+                for (const col of validMoves) {
+                    const tempBoard = JSON.parse(JSON.stringify(b));
+                    const r = getLowestEmptyRow(tempBoard, col);
+                    tempBoard[r][col] = PLAYER;
+
+                    const evaluation = minimax(tempBoard, depth - 1, alpha, beta, true);
+                    minEval = Math.min(minEval, evaluation);
+                    beta = Math.min(beta, minEval);
+                    if (beta <= alpha) break; // Alpha cut-off
+                }
+                return minEval;
+            }
+        }
+
+        /**
+         * Gets all columns that are not full.
+         * @param {Array<Array<number>>} b - The board state.
+         * @returns {Array<number>} Array of valid column indices.
+         */
+        function getValidMoves(b) {
+            const moves = [];
+            for (let c = 0; c < COLS; c++) {
+                if (b[0][c] === EMPTY) {
+                    moves.push(c);
+                }
+            }
+            return moves;
+        }
+
+        /**
+         * Heuristic function to score the board for the AI.
+         * Scores based on potential four-in-a-rows (3s and 2s).
+         * @param {Array<Array<number>>} b - The board state.
+         * @returns {number} The score for the current board state.
+         */
+        function evaluate(b) {
+            let score = 0;
+            const centerCol = Math.floor(COLS / 2);
+            // Reward moves in the center column
+            for(let r = 0; r < ROWS; r++) {
+                if (b[r][centerCol] === AI) score += 3;
+            }
+
+            // Check all possible 4-piece windows (horizontal, vertical, diagonal)
+            const checkWindow = (window) => {
+                let aiCount = window.filter(p => p === AI).length;
+                let playerCount = window.filter(p => p === PLAYER).length;
+                let emptyCount = window.filter(p => p === EMPTY).length;
+
+                // Major opportunity/threat scores (adjusted for win detection being outside)
+                if (aiCount === 3 && emptyCount === 1) score += 1000; 
+                if (playerCount === 3 && emptyCount === 1) score -= 900; 
+                
+                if (aiCount === 2 && emptyCount === 2) score += 10;
+                if (playerCount === 2 && emptyCount === 2) score -= 5;
+                
+                return 0;
+            };
+
+            // Horizontal
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c <= COLS - 4; c++) {
+                    checkWindow(b[r].slice(c, c + 4));
+                }
+            }
+
+            // Vertical
+            for (let c = 0; c < COLS; c++) {
+                for (let r = 0; r <= ROWS - 4; r++) {
+                    const window = [b[r][c], b[r+1][c], b[r+2][c], b[r+3][c]];
+                    checkWindow(window);
+                }
+            }
+
+            // Diagonal (Positive slope / up-right)
+            for (let r = 3; r < ROWS; r++) {
+                for (let c = 0; c <= COLS - 4; c++) {
+                    const window = [b[r][c], b[r-1][c+1], b[r-2][c+2], b[r-3][c+3]];
+                    checkWindow(window);
+                }
+            }
+
+            // Diagonal (Negative slope / down-right)
+            for (let r = 0; r <= ROWS - 4; r++) {
+                for (let c = 0; c <= COLS - 4; c++) {
+                    const window = [b[r][c], b[r+1][c+1], b[r+2][c+2], b[r+3][c+3]];
+                    checkWindow(window);
+                }
+            }
+
+            return score;
+        }
+
+        // --- Event Listeners ---
+        resetBtn.addEventListener('click', initGame);
+
+        // Initialize the game on load
+        window.onload = initGame;
+
+    </script>
+</body>
+</html>
